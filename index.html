@@ -63,14 +63,26 @@
 </head>
 <body>
 <header>
-  <h1>AniList Completed Anime Filter</h1>
-  <p>Filter your completed anime list by year range (e.g. 2024+)</p>
+  <h1>AniList Anime List Filter</h1>
+  <p>Filter your anime list by status and year range (e.g. completed 2024+)</p>
 </header>
 
 <div class="controls">
   <div class="control-group">
     <label>AniList Username</label>
     <input type="text" id="username" placeholder="e.g. Nade" style="width:140px">
+  </div>
+  <div class="control-group">
+    <label>Status</label>
+    <select id="listStatus" style="width:130px">
+      <option value="COMPLETED" selected>Completed</option>
+      <option value="CURRENT">Watching</option>
+      <option value="PLANNING">Planning</option>
+      <option value="PAUSED">Paused</option>
+      <option value="DROPPED">Dropped</option>
+      <option value="REPEATING">Repeating</option>
+      <option value="">All</option>
+    </select>
   </div>
   <div class="control-group">
     <label>Min Year</label>
@@ -115,6 +127,7 @@ const LIST_QUERY = `query ($userName: String) {
       name
       status
       entries {
+        status
         score
         repeat
         completedAt { year month day }
@@ -182,10 +195,15 @@ async function fetchMyList() {
   if (!json.data.MediaListCollection) throw new Error('User not found or list is private');
 
   const entries = [];
+  const seen = new Set();
   for (const list of json.data.MediaListCollection.lists) {
     for (const e of list.entries) {
+      // Same anime can appear in multiple custom lists; keep first occurrence
+      if (seen.has(e.media.id)) continue;
+      seen.add(e.media.id);
       entries.push({
         id: e.media.id,
+        entryStatus: e.status,
         title: e.media.title.english || e.media.title.romaji || 'Untitled',
         image: e.media.coverImage.large,
         userScore: e.score || 0,
@@ -201,11 +219,13 @@ async function fetchMyList() {
 }
 
 function filterAndSortList(entries) {
+  const status = document.getElementById('listStatus').value;
   const minYear = parseInt(document.getElementById('minYear').value) || null;
   const maxYear = parseInt(document.getElementById('maxYear').value) || null;
   const sortBy = document.getElementById('sortBy').value;
 
   let filtered = entries.filter(e => {
+    if (status && e.entryStatus !== status) return false;
     if (minYear && (!e.year || e.year < minYear)) return false;
     if (maxYear && (!e.year || e.year > maxYear)) return false;
     return true;
@@ -319,12 +339,12 @@ function renderPage(page) {
 
   if (!slice.length) {
     grid.innerHTML = '';
-    status.textContent = filteredList.length ? 'No results on this page' : 'No completed anime found matching year range';
+    status.textContent = filteredList.length ? 'No results on this page' : 'No anime found matching filters';
     document.getElementById('pagination').innerHTML = '';
     return;
   }
 
-  status.textContent = `Showing ${start + 1}–${Math.min(start + perPage, filteredList.length)} of ${filteredList.length} completed anime`;
+  status.textContent = `Showing ${start + 1}–${Math.min(start + perPage, filteredList.length)} of ${filteredList.length} anime`;
   renderResults(slice);
   renderPagination(page, filteredList.length);
   window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -349,7 +369,7 @@ async function loadList() {
 
 function applyFilter() {
   filteredList = filterAndSortList(allListEntries);
-  document.getElementById('note').textContent = `Loaded ${allListEntries.length} completed anime total • ${filteredList.length} matching year range`;
+  document.getElementById('note').textContent = `Loaded ${allListEntries.length} list entries total • ${filteredList.length} matching filters`;
   renderPage(1);
 }
 
@@ -366,7 +386,7 @@ usernameInput.addEventListener('keydown', e => {
 });
 if (savedUser) loadList();
 
-['minYear', 'maxYear', 'sortBy'].forEach(id => {
+['listStatus', 'minYear', 'maxYear', 'sortBy'].forEach(id => {
   document.getElementById(id).addEventListener('change', () => {
     if (allListEntries.length) applyFilter();
   });
