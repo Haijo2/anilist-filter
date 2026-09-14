@@ -250,18 +250,23 @@ function filterAndSortList(entries) {
     return true;
   });
 
+  const byTitle = (a, b) => a.title.localeCompare(b.title);
+  const byAvgDesc = (a, b) => (b.avgScore || 0) - (a.avgScore || 0);
   filtered.sort((a, b) => {
     switch (sortBy) {
-      case 'score_desc': return b.userScore - a.userScore;
-      case 'score_asc': return a.userScore - b.userScore;
-      case 'avg_desc': return (b.avgScore || 0) - (a.avgScore || 0);
-      case 'title': return a.title.localeCompare(b.title);
-      case 'recent':
+      case 'score_desc': return (b.userScore - a.userScore) || byTitle(a, b);
+      case 'score_asc': return (a.userScore - b.userScore) || byTitle(a, b);
+      case 'avg_desc': return byAvgDesc(a, b) || byTitle(a, b);
+      case 'title': return byTitle(a, b);
+      case 'recent': {
         const ad = a.completedAt, bd = b.completedAt;
-        if (ad?.year && bd?.year) return (bd.year * 10000 + (bd.month||0) * 100 + (bd.day||0)) - (ad.year * 10000 + (ad.month||0) * 100 + (ad.day||0));
-        return 0;
-      case 'year_desc': return (b.year || 0) - (a.year || 0);
-      case 'year_asc': return (a.year || 0) - (b.year || 0);
+        const cmp = (ad?.year && bd?.year)
+          ? (bd.year * 10000 + (bd.month||0) * 100 + (bd.day||0)) - (ad.year * 10000 + (ad.month||0) * 100 + (ad.day||0))
+          : 0;
+        return cmp || byTitle(a, b);
+      }
+      case 'year_desc': return ((b.year || 0) - (a.year || 0)) || byTitle(a, b);
+      case 'year_asc': return ((a.year || 0) - (b.year || 0)) || byTitle(a, b);
       default: return 0;
     }
   });
