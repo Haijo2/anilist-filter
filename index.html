@@ -174,10 +174,29 @@ const maxYearSelect = document.getElementById('maxYear');
 fillYearSelect(minYearSelect, { includeAny: true, selected: '2024' });
 fillYearSelect(maxYearSelect, { includeAny: true, selected: '' });
 
-// Remember username in localStorage
+// Remember username and filter selections in localStorage
 const usernameInput = document.getElementById('username');
 const savedUser = localStorage.getItem('anilist_username');
 if (savedUser) usernameInput.value = savedUser;
+
+const PREF_IDS = ['listStatus', 'minYear', 'maxYear', 'sortBy'];
+function savePrefs() {
+  const prefs = {};
+  PREF_IDS.forEach(id => { prefs[id] = document.getElementById(id).value; });
+  localStorage.setItem('anilist_prefs', JSON.stringify(prefs));
+}
+(function restorePrefs() {
+  try {
+    const prefs = JSON.parse(localStorage.getItem('anilist_prefs') || '{}');
+    PREF_IDS.forEach(id => {
+      if (prefs[id] !== undefined) {
+        const el = document.getElementById(id);
+        // Only apply if the value exists among the options
+        if ([...el.options].some(o => o.value === prefs[id])) el.value = prefs[id];
+      }
+    });
+  } catch (e) { /* ignore corrupt prefs */ }
+})();
 
 async function fetchMyList() {
   const username = usernameInput.value.trim();
@@ -388,6 +407,7 @@ if (savedUser) loadList();
 
 ['listStatus', 'minYear', 'maxYear', 'sortBy'].forEach(id => {
   document.getElementById(id).addEventListener('change', () => {
+    savePrefs();
     if (allListEntries.length) applyFilter();
   });
 });
