@@ -93,6 +93,22 @@
     <select id="maxYear" style="width:100px"></select>
   </div>
   <div class="control-group">
+    <label>Min Score</label>
+    <select id="minScore" style="width:80px">
+      <option value="">Any</option>
+      <option value="10">10</option>
+      <option value="9">9</option>
+      <option value="8">8</option>
+      <option value="7">7</option>
+      <option value="6">6</option>
+      <option value="5">5</option>
+      <option value="4">4</option>
+      <option value="3">3</option>
+      <option value="2">2</option>
+      <option value="1">1</option>
+    </select>
+  </div>
+  <div class="control-group">
     <label>Sort By</label>
     <select id="sortBy">
       <option value="score_desc">Your Score (High &rarr; Low)</option>
@@ -179,7 +195,7 @@ const usernameInput = document.getElementById('username');
 const savedUser = localStorage.getItem('anilist_username');
 if (savedUser) usernameInput.value = savedUser;
 
-const PREF_IDS = ['listStatus', 'minYear', 'maxYear', 'sortBy'];
+const PREF_IDS = ['listStatus', 'minYear', 'maxYear', 'minScore', 'sortBy'];
 function savePrefs() {
   const prefs = {};
   PREF_IDS.forEach(id => { prefs[id] = document.getElementById(id).value; });
@@ -241,10 +257,12 @@ function filterAndSortList(entries) {
   const status = document.getElementById('listStatus').value;
   const minYear = parseInt(document.getElementById('minYear').value) || null;
   const maxYear = parseInt(document.getElementById('maxYear').value) || null;
+  const minScore = parseInt(document.getElementById('minScore').value) || null;
   const sortBy = document.getElementById('sortBy').value;
 
   let filtered = entries.filter(e => {
     if (status && e.entryStatus !== status) return false;
+    if (minScore && e.userScore < minScore) return false;
     if (minYear && (!e.year || e.year < minYear)) return false;
     if (maxYear && (!e.year || e.year > maxYear)) return false;
     return true;
@@ -410,7 +428,7 @@ usernameInput.addEventListener('keydown', e => {
 });
 if (savedUser) loadList();
 
-['listStatus', 'minYear', 'maxYear', 'sortBy'].forEach(id => {
+['listStatus', 'minYear', 'maxYear', 'minScore', 'sortBy'].forEach(id => {
   document.getElementById(id).addEventListener('change', () => {
     savePrefs();
     if (allListEntries.length) applyFilter();
