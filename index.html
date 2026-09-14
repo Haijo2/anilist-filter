@@ -74,11 +74,11 @@
   </div>
   <div class="control-group">
     <label>Min Year</label>
-    <input type="number" id="minYear" value="2024" min="1917" max="2030" style="width:85px">
+    <select id="minYear" style="width:100px"></select>
   </div>
   <div class="control-group">
     <label>Max Year</label>
-    <input type="number" id="maxYear" value="" min="1917" max="2030" placeholder="none" style="width:85px">
+    <select id="maxYear" style="width:100px"></select>
   </div>
   <div class="control-group">
     <label>Sort By</label>
@@ -99,13 +99,9 @@
       <button id="listViewBtn" title="List view">List</button>
     </div>
   </div>
-  <div class="control-group">
-    <label>&nbsp;</label>
-    <button class="primary" id="loadBtn">Load List</button>
-  </div>
 </div>
 
-<div id="status" class="status">Enter your AniList username and click Load List</div>
+<div id="status" class="status">Enter your AniList username above</div>
 <div class="note" id="note"></div>
 <div id="grid" class="grid"></div>
 <div id="pagination" class="pagination"></div>
@@ -140,6 +136,30 @@ let allListEntries = [];
 let filteredList = [];
 let currentPage = 1;
 const perPage = 30;
+
+// Populate year dropdowns (newest first)
+const YEAR_MIN = 1917;
+const YEAR_MAX = new Date().getFullYear() + 1;
+function fillYearSelect(el, { includeAny, selected }) {
+  el.innerHTML = '';
+  if (includeAny) {
+    const opt = document.createElement('option');
+    opt.value = '';
+    opt.textContent = 'Any';
+    el.appendChild(opt);
+  }
+  for (let y = YEAR_MAX; y >= YEAR_MIN; y--) {
+    const opt = document.createElement('option');
+    opt.value = String(y);
+    opt.textContent = String(y);
+    el.appendChild(opt);
+  }
+  if (selected) el.value = selected;
+}
+const minYearSelect = document.getElementById('minYear');
+const maxYearSelect = document.getElementById('maxYear');
+fillYearSelect(minYearSelect, { includeAny: true, selected: '2024' });
+fillYearSelect(maxYearSelect, { includeAny: true, selected: '' });
 
 // Remember username in localStorage
 const usernameInput = document.getElementById('username');
@@ -333,23 +353,25 @@ function applyFilter() {
   renderPage(1);
 }
 
-document.getElementById('loadBtn').addEventListener('click', loadList);
 document.getElementById('galleryViewBtn').addEventListener('click', () => setViewMode('gallery'));
 document.getElementById('listViewBtn').addEventListener('click', () => setViewMode('list'));
 applyViewMode();
+
+// Auto-load: on startup if username is remembered, on change/Enter otherwise
+usernameInput.addEventListener('change', () => {
+  if (usernameInput.value.trim()) loadList();
+});
+usernameInput.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && usernameInput.value.trim()) loadList();
+});
+if (savedUser) loadList();
 
 ['minYear', 'maxYear', 'sortBy'].forEach(id => {
   document.getElementById(id).addEventListener('change', () => {
     if (allListEntries.length) applyFilter();
   });
-  document.getElementById(id).addEventListener('keydown', e => {
-    if (e.key === 'Enter' && allListEntries.length) applyFilter();
-  });
 });
 
-usernameInput.addEventListener('keydown', e => {
-  if (e.key === 'Enter') loadList();
-});
 </script>
 </body>
 </html>
