@@ -29,7 +29,9 @@
     .controls { padding: 1rem 0.75rem; gap: 0.6rem; }
     .tabbar { padding: 0.5rem 0.75rem; }
   }
-  .card { background: #192734; border-radius: 8px; overflow: hidden; transition: transform 0.15s, box-shadow 0.15s; border: 1px solid #253341; }
+  .card { background: #192734; border-radius: 8px; overflow: hidden; transition: transform 0.15s, box-shadow 0.15s; border: 1px solid #253341; position: relative; }
+  .rank-badge { position: absolute; top: 0.4rem; left: 0.4rem; background: rgba(11,22,34,0.88); color: #e1e8f0; font-size: 0.7rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 6px; border: 1px solid #3a4f63; }
+  .row-rank { font-size: 1.05rem; color: #8899a6; width: 2.6rem; text-align: right; flex-shrink: 0; font-variant-numeric: tabular-nums; }
   .card:hover { transform: translateY(-3px); box-shadow: 0 6px 20px rgba(0,0,0,0.4); }
   .card img { width: 100%; aspect-ratio: 3/4; object-fit: cover; display: block; }
   .card .info { padding: 0.75rem; }
@@ -142,6 +144,17 @@
 
 <div id="browseControls" class="controls hidden">
   <div class="control-group">
+    <label>Status</label>
+    <select id="browseStatus" style="width:130px">
+      <option value="FINISHED">Completed</option>
+      <option value="RELEASING">Releasing</option>
+      <option value="NOT_YET_RELEASED">Not Yet Released</option>
+      <option value="HIATUS">Hiatus</option>
+      <option value="CANCELLED">Cancelled</option>
+      <option value="" selected>All</option>
+    </select>
+  </div>
+  <div class="control-group">
     <label>Min Year</label>
     <select id="browseMinYear" style="width:100px"></select>
   </div>
@@ -197,7 +210,7 @@ const LIST_QUERY = `query ($userName: String) {
 // BROWSE MODE - search the public AniList database by year
 // ============================================================
 const BROWSE_FIELDS = `pageInfo { total hasNextPage currentPage perPage }
-  media(type: ANIME, status: FINISHED, sort: $sort, format_not_in: [MUSIC]) {
+  media(type: ANIME, sort: $sort, format_not_in: [MUSIC]) {
     id
     title { english romaji }
     coverImage { large }
@@ -208,9 +221,10 @@ const BROWSE_FIELDS = `pageInfo { total hasNextPage currentPage perPage }
     popularity
   }`;
 
-function buildBrowseQuery(hasMinYear, hasMaxYear) {
+function buildBrowseQuery(hasStatus, hasMinYear, hasMaxYear) {
   const vars = ['$page: Int', '$perPage: Int', '$sort: [MediaSort]'];
   const args = [];
+  if (hasStatus) { vars.push('$status: MediaStatus'); args.push('status: $status'); }
   if (hasMinYear) { vars.push('$minYear: FuzzyDateInt'); args.push('startDate_greater: $minYear'); }
   if (hasMaxYear) { vars.push('$maxYear: FuzzyDateInt'); args.push('startDate_lesser: $maxYear'); }
   const mediaArgs = args.length ? `, ${args.join(', ')}` : '';
@@ -218,16 +232,18 @@ function buildBrowseQuery(hasMinYear, hasMaxYear) {
 }
 
 async function fetchBrowse(page) {
+  const statusVal = document.getElementById('browseStatus').value || null;
   const minY = parseInt(document.getElementById('browseMinYear').value) || null;
   const maxY = parseInt(document.getElementById('browseMaxYear').value) || null;
   const variables = { page, perPage, sort: [document.getElementById('browseSort').value] };
+  if (statusVal) variables.status = statusVal;
   if (minY) variables.minYear = minY * 10000;
   if (maxY) variables.maxYear = (maxY + 1) * 10000;
 
   const res = await fetch(API_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-    body: JSON.stringify({ query: buildBrowseQuery(!!minY, !!maxY), variables }),
+    body: JSON.stringify({ query: buildBrowseQuery(!!statusVal, !!minY, !!maxY), variables }),
   });
   if (!res.ok) throw new Error(`API error: ${res.status}`);
   const json = await res.json();
@@ -278,7 +294,7 @@ function renderBrowse() {
   const status = document.getElementById('status');
   const start = (d.currentPage - 1) * perPage;
   status.textContent = `Showing ${start + 1}–${Math.min(start + perPage, d.total)} of ${d.total} anime`;
-  renderResults(d.items);
+  renderResults(d.items, start);
   const el = document.getElementById('pagination');
   const totalPages = Math.ceil(d.total / perPage);
   if (totalPages <= 1) { el.innerHTML = ''; return; }
@@ -327,7 +343,7 @@ const usernameInput = document.getElementById('username');
 const savedUser = localStorage.getItem('anilist_username');
 if (savedUser) usernameInput.value = savedUser;
 
-const PREF_IDS = ['listStatus', 'minYear', 'maxYear', 'minScore', 'sortBy', 'browseMinYear', 'browseMaxYear', 'browseSort'];
+const PREF_IDS = ['listStatus', 'minYear', 'maxYear', 'minScore', 'sortBy', 'browseStatus', 'browseMinYear', 'browseMaxYear', 'browseSort'];
 function savePrefs() {
   const prefs = {};
   PREF_IDS.forEach(id => { prefs[id] = document.getElementById(id).value; });
@@ -440,14 +456,15 @@ function scoreHtml(m) {
   return (userScoreStr ? `<span class="score">${userScoreStr}</span> ` : '') + avgScoreStr;
 }
 
-function renderCards(items) {
+function renderCards(items, offset = 0) {
   const grid = document.getElementById('grid');
-  grid.innerHTML = items.map(m => {
+  grid.innerHTML = items.map((m, i) => {
     const episodes = m.episodes ? `${m.episodes} ep` : '';
     const meta = [m.year, m.format, episodes].filter(Boolean).join(' · ');
     const t = esc(m.title);
     return `
       <a href="https://anilist.co/anime/${m.id}" target="_blank" rel="noopener" class="card" style="text-decoration:none;color:inherit">
+        <div class="rank-badge">#${offset + i + 1}</div>
         <img src="${m.image}" alt="${t}" loading="lazy">
         <div class="info">
           <div class="title" title="${t}">${t}</div>
@@ -458,14 +475,15 @@ function renderCards(items) {
   }).join('');
 }
 
-function renderListRows(items) {
+function renderListRows(items, offset = 0) {
   const grid = document.getElementById('grid');
-  grid.innerHTML = items.map(m => {
+  grid.innerHTML = items.map((m, i) => {
     const episodes = m.episodes ? `${m.episodes} ep` : '';
     const meta = [m.year, m.format, episodes].filter(Boolean).join(' · ');
     const t = esc(m.title);
     return `
       <a href="https://anilist.co/anime/${m.id}" target="_blank" rel="noopener" class="row" style="text-decoration:none;color:inherit">
+        <div class="row-rank">#${offset + i + 1}</div>
         <img src="${m.image}" alt="${t}" loading="lazy">
         <div class="row-main">
           <div class="row-title" title="${t}">${t}</div>
@@ -485,9 +503,9 @@ function applyViewMode() {
   document.getElementById('listViewBtn').classList.toggle('active', viewMode === 'list');
 }
 
-function renderResults(items) {
-  if (viewMode === 'list') renderListRows(items);
-  else renderCards(items);
+function renderResults(items, offset = 0) {
+  if (viewMode === 'list') renderListRows(items, offset);
+  else renderCards(items, offset);
 }
 
 function setViewMode(mode) {
@@ -532,7 +550,7 @@ function renderPage(page) {
   }
 
   status.textContent = `Showing ${start + 1}–${Math.min(start + perPage, filteredList.length)} of ${filteredList.length} anime`;
-  renderResults(slice);
+  renderResults(slice, start);
   renderPagination(page, filteredList.length);
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
@@ -579,7 +597,7 @@ usernameInput.addEventListener('keydown', e => {
   });
 });
 
-['browseMinYear', 'browseMaxYear', 'browseSort'].forEach(id => {
+['browseStatus', 'browseMinYear', 'browseMaxYear', 'browseSort'].forEach(id => {
   document.getElementById(id).addEventListener('change', () => {
     savePrefs();
     if (activeTab === 'browse') loadBrowsePage(1);
