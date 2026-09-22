@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AniList Completed Anime Year Filter</title>
+<title>AniList Anime Filter</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0b1622; color: #c2d0e0; min-height: 100vh; }
@@ -27,6 +27,7 @@
     .card .meta { font-size: 0.65rem; }
     .list { padding: 1rem 0.75rem; }
     .controls { padding: 1rem 0.75rem; gap: 0.6rem; }
+    .tabbar { padding: 0.5rem 0.75rem; }
   }
   .card { background: #192734; border-radius: 8px; overflow: hidden; transition: transform 0.15s, box-shadow 0.15s; border: 1px solid #253341; }
   .card:hover { transform: translateY(-3px); box-shadow: 0 6px 20px rgba(0,0,0,0.4); }
@@ -45,6 +46,12 @@
   a { color: #1da1f2; text-decoration: none; }
   a:hover { text-decoration: underline; }
   .note { font-size: 0.8rem; color: #6b7d8e; text-align: center; padding: 0 2rem 0.5rem; }
+  .hidden { display: none !important; }
+  .tabbar { display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; background: #15202b; padding: 0.6rem 2rem; border-bottom: 1px solid #253341; }
+  .tabs { display: flex; gap: 0.25rem; }
+  .tab { background: none; border: none; padding: 0.5rem 1rem; font-size: 0.9rem; font-weight: 500; color: #8899a6; cursor: pointer; border-bottom: 2px solid transparent; }
+  .tab:hover { color: #c2d0e0; }
+  .tab.active { color: #1da1f2; border-bottom-color: #1da1f2; }
   .view-toggle { display: flex; gap: 0; }
   .view-toggle button { background: #253341; color: #c2d0e0; border: 1px solid #3a4f63; padding: 0.5rem 0.9rem; font-size: 0.85rem; cursor: pointer; }
   .view-toggle button:first-child { border-radius: 6px 0 0 6px; }
@@ -67,7 +74,18 @@
   <p>Filter your anime list by status and year range (e.g. completed 2024+)</p>
 </header>
 
-<div class="controls">
+<div class="tabbar">
+  <div class="tabs">
+    <button class="tab" data-tab="mylist">My List</button>
+    <button class="tab" data-tab="browse">Browse All</button>
+  </div>
+  <div class="view-toggle">
+    <button id="galleryViewBtn" title="Gallery view">Gallery</button>
+    <button id="listViewBtn" title="List view">List</button>
+  </div>
+</div>
+
+<div id="mylistControls" class="controls">
   <div class="control-group">
     <label>AniList Username</label>
     <input type="text" id="username" placeholder="e.g. Nade" style="width:140px">
@@ -120,12 +138,26 @@
       <option value="year_asc">Release Year (Oldest)</option>
     </select>
   </div>
+</div>
+
+<div id="browseControls" class="controls hidden">
   <div class="control-group">
-    <label>View</label>
-    <div class="view-toggle">
-      <button id="galleryViewBtn" class="active" title="Gallery view">Gallery</button>
-      <button id="listViewBtn" title="List view">List</button>
-    </div>
+    <label>Min Year</label>
+    <select id="browseMinYear" style="width:100px"></select>
+  </div>
+  <div class="control-group">
+    <label>Max Year</label>
+    <select id="browseMaxYear" style="width:100px"></select>
+  </div>
+  <div class="control-group">
+    <label>Sort By</label>
+    <select id="browseSort" style="width:170px">
+      <option value="SCORE_DESC">Avg Score (High &rarr; Low)</option>
+      <option value="POPULARITY_DESC">Most Popular</option>
+      <option value="START_DATE_DESC">Newest First</option>
+      <option value="START_DATE_ASC">Oldest First</option>
+      <option value="TITLE_ENGLISH">Title (A &rarr; Z)</option>
+    </select>
   </div>
 </div>
 
@@ -161,6 +193,104 @@ const LIST_QUERY = `query ($userName: String) {
   }
 }`;
 
+// ============================================================
+// BROWSE MODE - search the public AniList database by year
+// ============================================================
+const BROWSE_FIELDS = `pageInfo { total hasNextPage currentPage perPage }
+  media(type: ANIME, status: FINISHED, sort: $sort, format_not_in: [MUSIC]) {
+    id
+    title { english romaji }
+    coverImage { large }
+    averageScore
+    startDate { year }
+    format
+    episodes
+    popularity
+  }`;
+
+function buildBrowseQuery(hasMinYear, hasMaxYear) {
+  const vars = ['$page: Int', '$perPage: Int', '$sort: [MediaSort]'];
+  const args = [];
+  if (hasMinYear) { vars.push('$minYear: FuzzyDateInt'); args.push('startDate_greater: $minYear'); }
+  if (hasMaxYear) { vars.push('$maxYear: FuzzyDateInt'); args.push('startDate_lesser: $maxYear'); }
+  const mediaArgs = args.length ? `, ${args.join(', ')}` : '';
+  return `query (${vars.join(', ')}) { Page(page: $page, perPage: $perPage) { ${BROWSE_FIELDS.replace('sort: $sort', `sort: $sort${mediaArgs}`)} } }`;
+}
+
+async function fetchBrowse(page) {
+  const minY = parseInt(document.getElementById('browseMinYear').value) || null;
+  const maxY = parseInt(document.getElementById('browseMaxYear').value) || null;
+  const variables = { page, perPage, sort: [document.getElementById('browseSort').value] };
+  if (minY) variables.minYear = minY * 10000;
+  if (maxY) variables.maxYear = (maxY + 1) * 10000;
+
+  const res = await fetch(API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+    body: JSON.stringify({ query: buildBrowseQuery(!!minY, !!maxY), variables }),
+  });
+  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  const json = await res.json();
+  if (json.errors) throw new Error(json.errors.map(e => e.message).join(', '));
+  const p = json.data.Page;
+  return {
+    items: p.media.map(m => ({
+      id: m.id,
+      title: m.title.english || m.title.romaji || 'Untitled',
+      image: m.coverImage.large,
+      userScore: null, // no user in browse mode → average shown only
+      avgScore: m.averageScore,
+      year: m.startDate?.year,
+      format: m.format?.replace('_', ' ') || '',
+      episodes: m.episodes,
+    })),
+    total: p.pageInfo.total,
+    currentPage: p.pageInfo.currentPage,
+    hasNextPage: p.pageInfo.hasNextPage,
+  };
+}
+
+let browsePage = 1;
+let browseCache = null;
+
+function clearResults() {
+  document.getElementById('grid').innerHTML = '';
+  document.getElementById('pagination').innerHTML = '';
+  document.getElementById('note').textContent = '';
+}
+
+async function loadBrowsePage(page) {
+  browsePage = page;
+  const status = document.getElementById('status');
+  clearResults();
+  status.innerHTML = '<span class="loader"></span> Searching AniList...';
+  try {
+    browseCache = await fetchBrowse(page);
+    renderBrowse();
+  } catch (e) {
+    status.textContent = 'Error: ' + e.message;
+  }
+}
+
+function renderBrowse() {
+  const d = browseCache;
+  if (!d) return;
+  const status = document.getElementById('status');
+  const start = (d.currentPage - 1) * perPage;
+  status.textContent = `Showing ${start + 1}–${Math.min(start + perPage, d.total)} of ${d.total} anime`;
+  renderResults(d.items);
+  const el = document.getElementById('pagination');
+  const totalPages = Math.ceil(d.total / perPage);
+  if (totalPages <= 1) { el.innerHTML = ''; return; }
+  el.innerHTML = `
+    <button id="prevBtn" ${d.currentPage <= 1 ? 'disabled' : ''}>← Prev</button>
+    <span>Page ${d.currentPage} of ${totalPages}</span>
+    <button id="nextBtn" ${d.hasNextPage ? '' : 'disabled'}>Next →</button>`;
+  document.getElementById('prevBtn')?.addEventListener('click', () => loadBrowsePage(d.currentPage - 1));
+  document.getElementById('nextBtn')?.addEventListener('click', () => loadBrowsePage(d.currentPage + 1));
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
 let allListEntries = [];
 let filteredList = [];
 let currentPage = 1;
@@ -189,13 +319,15 @@ const minYearSelect = document.getElementById('minYear');
 const maxYearSelect = document.getElementById('maxYear');
 fillYearSelect(minYearSelect, { includeAny: true, selected: '2024' });
 fillYearSelect(maxYearSelect, { includeAny: true, selected: '' });
+fillYearSelect(document.getElementById('browseMinYear'), { includeAny: true, selected: '2024' });
+fillYearSelect(document.getElementById('browseMaxYear'), { includeAny: true, selected: '' });
 
 // Remember username and filter selections in localStorage
 const usernameInput = document.getElementById('username');
 const savedUser = localStorage.getItem('anilist_username');
 if (savedUser) usernameInput.value = savedUser;
 
-const PREF_IDS = ['listStatus', 'minYear', 'maxYear', 'minScore', 'sortBy'];
+const PREF_IDS = ['listStatus', 'minYear', 'maxYear', 'minScore', 'sortBy', 'browseMinYear', 'browseMaxYear', 'browseSort'];
 function savePrefs() {
   const prefs = {};
   PREF_IDS.forEach(id => { prefs[id] = document.getElementById(id).value; });
@@ -296,15 +428,21 @@ function esc(s) {
 }
 
 function scoreText(m) {
-  const userScoreStr = m.userScore > 0 ? `★ ${m.userScore}` : '★ -';
   const avgScoreStr = m.avgScore != null ? `[${m.avgScore}]` : '[-]';
+  // Browse items have no user score (null) → show average only
+  if (m.userScore == null) return { userScoreStr: '', avgScoreStr };
+  const userScoreStr = m.userScore > 0 ? `★ ${m.userScore}` : '★ -';
   return { userScoreStr, avgScoreStr };
+}
+
+function scoreHtml(m) {
+  const { userScoreStr, avgScoreStr } = scoreText(m);
+  return (userScoreStr ? `<span class="score">${userScoreStr}</span> ` : '') + avgScoreStr;
 }
 
 function renderCards(items) {
   const grid = document.getElementById('grid');
   grid.innerHTML = items.map(m => {
-    const { userScoreStr, avgScoreStr } = scoreText(m);
     const episodes = m.episodes ? `${m.episodes} ep` : '';
     const meta = [m.year, m.format, episodes].filter(Boolean).join(' · ');
     const t = esc(m.title);
@@ -314,7 +452,7 @@ function renderCards(items) {
         <div class="info">
           <div class="title" title="${t}">${t}</div>
           <div class="meta">${meta}</div>
-          <div class="meta"><span class="score">${userScoreStr}</span> ${avgScoreStr}</div>
+          <div class="meta">${scoreHtml(m)}</div>
         </div>
       </a>`;
   }).join('');
@@ -323,7 +461,6 @@ function renderCards(items) {
 function renderListRows(items) {
   const grid = document.getElementById('grid');
   grid.innerHTML = items.map(m => {
-    const { userScoreStr, avgScoreStr } = scoreText(m);
     const episodes = m.episodes ? `${m.episodes} ep` : '';
     const meta = [m.year, m.format, episodes].filter(Boolean).join(' · ');
     const t = esc(m.title);
@@ -334,7 +471,7 @@ function renderListRows(items) {
           <div class="row-title" title="${t}">${t}</div>
           <div class="row-meta">${meta}</div>
         </div>
-        <div class="row-scores"><span class="score">${userScoreStr}</span> ${avgScoreStr}</div>
+        <div class="row-scores">${scoreHtml(m)}</div>
       </a>`;
   }).join('');
 }
@@ -357,7 +494,15 @@ function setViewMode(mode) {
   viewMode = mode;
   localStorage.setItem('anilist_view', mode);
   applyViewMode();
-  if (filteredList.length) renderPage(currentPage);
+  rerenderCurrent();
+}
+
+function rerenderCurrent() {
+  if (activeTab === 'browse') {
+    if (browseCache) renderBrowse();
+  } else if (filteredList.length) {
+    renderPage(currentPage);
+  }
 }
 
 function renderPagination(page, totalItems) {
@@ -419,14 +564,13 @@ document.getElementById('galleryViewBtn').addEventListener('click', () => setVie
 document.getElementById('listViewBtn').addEventListener('click', () => setViewMode('list'));
 applyViewMode();
 
-// Auto-load: on startup if username is remembered, on change/Enter otherwise
+// Auto-load list: on startup if username is remembered, on change/Enter otherwise
 usernameInput.addEventListener('change', () => {
   if (usernameInput.value.trim()) loadList();
 });
 usernameInput.addEventListener('keydown', e => {
   if (e.key === 'Enter' && usernameInput.value.trim()) loadList();
 });
-if (savedUser) loadList();
 
 ['listStatus', 'minYear', 'maxYear', 'minScore', 'sortBy'].forEach(id => {
   document.getElementById(id).addEventListener('change', () => {
@@ -434,6 +578,41 @@ if (savedUser) loadList();
     if (allListEntries.length) applyFilter();
   });
 });
+
+['browseMinYear', 'browseMaxYear', 'browseSort'].forEach(id => {
+  document.getElementById(id).addEventListener('change', () => {
+    savePrefs();
+    if (activeTab === 'browse') loadBrowsePage(1);
+  });
+});
+
+// --- Tab switching ---
+let activeTab = 'mylist';
+function switchTab(tab) {
+  activeTab = tab;
+  localStorage.setItem('anilist_tab', tab);
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+  document.getElementById('mylistControls').classList.toggle('hidden', tab !== 'mylist');
+  document.getElementById('browseControls').classList.toggle('hidden', tab !== 'browse');
+  clearResults();
+  if (tab === 'browse') {
+    if (browseCache) renderBrowse();
+    else loadBrowsePage(1);
+  } else {
+    if (allListEntries.length) applyFilter();
+    else document.getElementById('status').textContent = 'Enter your AniList username above';
+  }
+}
+document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => switchTab(t.dataset.tab)));
+
+// Startup: My List if a username is remembered, else Browse All
+const savedTab = localStorage.getItem('anilist_tab');
+if (savedUser && savedTab !== 'browse') {
+  switchTab('mylist');
+  loadList();
+} else {
+  switchTab('browse');
+}
 
 </script>
 </body>
