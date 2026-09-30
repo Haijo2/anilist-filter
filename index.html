@@ -93,6 +93,10 @@
     <input type="text" id="username" placeholder="e.g. Nade" style="width:140px">
   </div>
   <div class="control-group">
+    <label>Search</label>
+    <input type="text" id="listSearch" placeholder="Filter by title..." style="width:150px">
+  </div>
+  <div class="control-group">
     <label>Status</label>
     <select id="listStatus" style="width:130px">
       <option value="COMPLETED" selected>Completed</option>
@@ -143,6 +147,10 @@
 </div>
 
 <div id="browseControls" class="controls hidden">
+  <div class="control-group">
+    <label>Search</label>
+    <input type="text" id="browseSearch" placeholder="Search AniList..." style="width:150px">
+  </div>
   <div class="control-group">
     <label>Status</label>
     <select id="browseStatus" style="width:130px">
@@ -221,9 +229,10 @@ const BROWSE_FIELDS = `pageInfo { total hasNextPage currentPage perPage }
     popularity
   }`;
 
-function buildBrowseQuery(hasStatus, hasMinYear, hasMaxYear) {
+function buildBrowseQuery(hasSearch, hasStatus, hasMinYear, hasMaxYear) {
   const vars = ['$page: Int', '$perPage: Int', '$sort: [MediaSort]'];
   const args = [];
+  if (hasSearch) { vars.push('$search: String'); args.push('search: $search'); }
   if (hasStatus) { vars.push('$status: MediaStatus'); args.push('status: $status'); }
   if (hasMinYear) { vars.push('$minYear: FuzzyDateInt'); args.push('startDate_greater: $minYear'); }
   if (hasMaxYear) { vars.push('$maxYear: FuzzyDateInt'); args.push('startDate_lesser: $maxYear'); }
@@ -232,10 +241,12 @@ function buildBrowseQuery(hasStatus, hasMinYear, hasMaxYear) {
 }
 
 async function fetchBrowse(page) {
+  const searchVal = document.getElementById('browseSearch').value.trim() || null;
   const statusVal = document.getElementById('browseStatus').value || null;
   const minY = parseInt(document.getElementById('browseMinYear').value) || null;
   const maxY = parseInt(document.getElementById('browseMaxYear').value) || null;
   const variables = { page, perPage, sort: [document.getElementById('browseSort').value] };
+  if (searchVal) variables.search = searchVal;
   if (statusVal) variables.status = statusVal;
   if (minY) variables.minYear = minY * 10000;
   if (maxY) variables.maxYear = (maxY + 1) * 10000;
@@ -243,7 +254,7 @@ async function fetchBrowse(page) {
   const res = await fetch(API_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-    body: JSON.stringify({ query: buildBrowseQuery(!!statusVal, !!minY, !!maxY), variables }),
+    body: JSON.stringify({ query: buildBrowseQuery(!!searchVal, !!statusVal, !!minY, !!maxY), variables }),
   });
   if (!res.ok) throw new Error(`API error: ${res.status}`);
   const json = await res.json();
@@ -343,7 +354,12 @@ const usernameInput = document.getElementById('username');
 const savedUser = localStorage.getItem('anilist_username');
 if (savedUser) usernameInput.value = savedUser;
 
-const PREF_IDS = ['listStatus', 'minYear', 'maxYear', 'minScore', 'sortBy', 'browseStatus', 'browseMinYear', 'browseMaxYear', 'browseSort'];
+const PREF_IDS = ['listStatus', 'minYear', 'maxYear', 'minScore', 'sortBy', 'listSearch', 'browseSearch', 'browseStatus', 'browseMinYear', 'browseMaxYear', 'browseSort'];
+
+function debounce(fn, ms) {
+  let t;
+  return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+}
 function savePrefs() {
   const prefs = {};
   PREF_IDS.forEach(id => { prefs[id] = document.getElementById(id).value; });
@@ -388,6 +404,7 @@ async function fetchMyList() {
         id: e.media.id,
         entryStatus: e.status,
         title: e.media.title.english || e.media.title.romaji || 'Untitled',
+        searchText: `${e.media.title.english || ''} ${e.media.title.romaji || ''}`.toLowerCase(),
         image: e.media.coverImage.large,
         userScore: e.score || 0,
         avgScore: e.media.averageScore,
@@ -406,10 +423,12 @@ function filterAndSortList(entries) {
   const minYear = parseInt(document.getElementById('minYear').value) || null;
   const maxYear = parseInt(document.getElementById('maxYear').value) || null;
   const minScore = parseInt(document.getElementById('minScore').value) || null;
+  const query = document.getElementById('listSearch').value.trim().toLowerCase();
   const sortBy = document.getElementById('sortBy').value;
 
   let filtered = entries.filter(e => {
     if (status && e.entryStatus !== status) return false;
+    if (query && !e.searchText.includes(query)) return false;
     if (minScore && e.userScore < minScore) return false;
     if (minYear && (!e.year || e.year < minYear)) return false;
     if (maxYear && (!e.year || e.year > maxYear)) return false;
@@ -603,6 +622,17 @@ usernameInput.addEventListener('keydown', e => {
     if (activeTab === 'browse') loadBrowsePage(1);
   });
 });
+
+// Search: instant client-side filter on My List, debounced server search on Browse
+document.getElementById('listSearch').addEventListener('input', () => {
+  savePrefs();
+  if (allListEntries.length) applyFilter();
+});
+const debouncedBrowseSearch = debounce(() => {
+  savePrefs();
+  if (activeTab === 'browse') loadBrowsePage(1);
+}, 500);
+document.getElementById('browseSearch').addEventListener('input', debouncedBrowseSearch);
 
 // --- Tab switching ---
 let activeTab = 'mylist';
